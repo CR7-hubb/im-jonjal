@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v5 🔥</title>
+<title>🔥 슈퍼갓 RPG v6 🔥</title>
 <style>
 html, body {margin:0; overflow:hidden; background:#000;}
 canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
@@ -13,7 +13,7 @@ canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
 </head>
 <body>
 <canvas id="gameCanvas" width="960" height="640"></canvas>
-<div id="ui">❤️ HP: <span id="hp">100</span> | 💰 Gold: <span id="gold">0</span> | 🎒 [I] 인벤토리</div>
+<div id="ui">❤️ HP: <span id="hp">100</span> | 🔥 MP: <span id="mp">50</span> | 💰 Gold: <span id="gold">0</span> | 🎒 [I] 인벤토리</div>
 <div id="inventory"></div>
 <div id="msgBox"></div>
 
@@ -21,6 +21,7 @@ canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
 <audio id="hitSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_1ea2c7a3d2.mp3?filename=hit-sword-2.mp3"></audio>
 <audio id="potionSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_3a4f1f2e34.mp3?filename=potion-drink.mp3"></audio>
 <audio id="effectSound" src="https://cdn.pixabay.com/download/audio/2023/03/12/audio_03f60e2a4c.mp3?filename=magic-effect.mp3"></audio>
+<audio id="skillSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_9c2e7f7b8c.mp3?filename=magic-spell.mp3"></audio>
 
 <script>
 // ===========================
@@ -29,6 +30,7 @@ canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 const hpUI = document.getElementById("hp");
+const mpUI = document.getElementById("mp");
 const goldUI = document.getElementById("gold");
 const inventoryUI = document.getElementById("inventory");
 const msgBox = document.getElementById("msgBox");
@@ -36,6 +38,7 @@ const bgm = document.getElementById("bgm");
 const hitSound = document.getElementById("hitSound");
 const potionSound = document.getElementById("potionSound");
 const effectSound = document.getElementById("effectSound");
+const skillSound = document.getElementById("skillSound");
 document.body.addEventListener("click",()=>{bgm.play().catch(()=>{});},{once:true});
 
 // ===========================
@@ -66,8 +69,9 @@ const tileColors=["#1b5e20","#33691e","#4e342e"];
 // 플레이어
 // ===========================
 const player={
-  x:5,y:5,hp:100,gold:0,speed:2,sprite:new Image(),anim:0,dir:0,
-  inventory:[],equipment:{weapon:null,armor:null},isUsingItem:false
+  x:5,y:5,hp:100,mp:50,gold:0,speed:2,sprite:new Image(),anim:0,dir:0,
+  inventory:[],equipment:{weapon:null,armor:null},isUsingItem:false,alive:true,
+  skillCooldown:0
 };
 player.sprite.src="https://i.ibb.co/L9G8Fg8/hero-spritesheet.png";
 
@@ -102,14 +106,14 @@ for(let i=0;i<20;i++){
 // ===========================
 // 보스
 // ===========================
-const boss = {x:MAP_W-5, y:MAP_H-5, hp:200, atk:15, alive:true, anim:0};
+const boss = {x:MAP_W-5, y:MAP_H-5, hp:200, atk:15, alive:true, anim:0, skillTimer:0};
 
 // ===========================
 // 아이템
 // ===========================
 const itemList=[
   {name:"포션",type:"use",effect:()=>{
-    if(!player.isUsingItem){
+    if(!player.isUsingItem && player.alive){
       player.isUsingItem=true;
       potionSound.play();
       showMsg("HP +30 회복!");
@@ -125,9 +129,10 @@ const itemList=[
 // ===========================
 // 함수
 // ===========================
-function canMove(nx,ny){return map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(nx)]!==2;}
+function canMove(nx,ny){return player.alive && map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(nx)]!==2;}
 
 function updatePlayer(){
+  if(!player.alive) return;
   let moved=false;
   const speed=player.speed;
   if(keys["ArrowUp"] && canMove(player.x,player.y-speed/32)){player.y-=speed/32; player.dir=3; moved=true;}
@@ -135,8 +140,52 @@ function updatePlayer(){
   if(keys["ArrowLeft"] && canMove(player.x-speed/32,player.y)){player.x-=speed/32; player.dir=1; moved=true;}
   if(keys["ArrowRight"] && canMove(player.x+speed/32,player.y)){player.x+=speed/32; player.dir=2; moved=true;}
   if(moved) player.anim+=0.15;
+  if(player.skillCooldown>0) player.skillCooldown-=0.016; // 약 60FPS 기준
 }
 
+// ===========================
+// 몬스터 AI
+// ===========================
+function updateMonsters(){
+  for(let m of monsters){
+    if(m.hp<=0) continue;
+    const dx=player.x-m.x;
+    const dy=player.y-m.y;
+    if(Math.abs(dx)<0.8 && Math.abs(dy)<0.8){
+      // 근접 공격
+      player.hp -= m.atk - (player.equipment.armor?player.equipment.armor.def:0);
+      if(player.hp<0) player.hp=0;
+      effectSound.play();
+      showMsg("몬스터 공격!");
+    } else {
+      // 단순 추적
+      if(Math.abs(dx)>0.1) m.x += dx>0?0.02:-0.02;
+      if(Math.abs(dy)>0.1) m.y += dy>0?0.02:-0.02;
+    }
+  }
+}
+
+// ===========================
+// 보스 AI
+// ===========================
+function updateBoss(){
+  if(!boss.alive) return;
+  const dx = player.x - boss.x;
+  const dy = player.y - boss.y;
+  boss.skillTimer+=0.016;
+  if(boss.skillTimer>3){ // 3초마다 스킬
+    boss.skillTimer=0;
+    player.hp -= boss.atk*1.5 - (player.equipment.armor?player.equipment.armor.def:0);
+    effectSound.play();
+    showMsg("💥 보스 스킬 공격!");
+  }
+  if(Math.abs(dx)>0.1) boss.x += dx>0?0.01:-0.01;
+  if(Math.abs(dy)>0.1) boss.y += dy>0?0.01:-0.01;
+}
+
+// ===========================
+// UI
+// ===========================
 function drawMap(){
   const startX=Math.floor(player.x-15);
   const startY=Math.floor(player.y-10);
@@ -152,92 +201,36 @@ function drawMap(){
   }
 }
 
-function drawNPCs(){
-  ctx.fillStyle="yellow";
-  for(let npc of npcs){
-    const dx=npc.x-player.x;
-    const dy=npc.y-player.y;
-    if(Math.abs(dx)<15 && Math.abs(dy)<10){
-      ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
-    }
-  }
-}
-
-function drawMonsters(){
-  ctx.fillStyle="red";
-  for(let m of monsters){
-    const dx=m.x-player.x;
-    const dy=m.y-player.y;
-    if(Math.abs(dx)<15 && Math.abs(dy)<10){
-      ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
-    }
-  }
-}
-
-function drawBoss(){
-  if(boss.alive){
-    ctx.fillStyle="purple";
-    const dx=boss.x-player.x;
-    const dy=boss.y-player.y;
-    if(Math.abs(dx)<15 && Math.abs(dy)<10){
-      ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
-    }
-  }
-}
-
-function drawPlayer(){
-  const frame=Math.floor(player.anim)%3;
-  ctx.drawImage(player.sprite,frame*32,player.dir*32,32,32,canvas.width/2-TILE_SIZE/2,canvas.height/2-TILE_SIZE/2,TILE_SIZE,TILE_SIZE);
-}
-
+function drawNPCs(){ctx.fillStyle="yellow"; for(let npc of npcs){const dx=npc.x-player.x;const dy=npc.y-player.y;if(Math.abs(dx)<15 && Math.abs(dy)<10){ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);}}}
+function drawMonsters(){ctx.fillStyle="red"; for(let m of monsters){const dx=m.x-player.x;const dy=m.y-player.y;if(Math.abs(dx)<15 && Math.abs(dy)<10){ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);}}}
+function drawBoss(){if(boss.alive){ctx.fillStyle="purple";const dx=boss.x-player.x;const dy=boss.y-player.y;if(Math.abs(dx)<15 && Math.abs(dy)<10){ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);}}}
+function drawPlayer(){const frame=Math.floor(player.anim)%3;ctx.drawImage(player.sprite,frame*32,player.dir*32,32,32,canvas.width/2-TILE_SIZE/2,canvas.height/2-TILE_SIZE/2,TILE_SIZE,TILE_SIZE);}
 function showMsg(txt){msgBox.textContent=txt; msgBox.style.display="block"; setTimeout(()=>msgBox.style.display="none",1000);}
-
-function openInventory(){
-  inventoryUI.style.display=inventoryUI.style.display==="block"?"none":"block";
-  if(inventoryUI.style.display==="block"){
-    let html="<b>🎒 인벤토리</b><hr>";
-    player.inventory.forEach((item,i)=>{html+=`${i+1}. ${item.name}<br>`;});
-    html+="<hr><small>[Enter]로 사용</small>";
-    inventoryUI.innerHTML=html;
-  }
-}
-
-function giveItem(it){player.inventory.push(it); showMsg(`${it.name} 획득!`); openInventory();}
+function openInventory(){inventoryUI.style.display=inventoryUI.style.display==="block"?"none":"block"; if(inventoryUI.style.display==="block"){let html="<b>🎒 인벤토리</b><hr>"; player.inventory.forEach((item,i)=>{html+=`${i+1}. ${item.name}<br>`;}); html+="<hr><small>[Enter]로 사용</small>"; inventoryUI.innerHTML=html;}}
 
 // ===========================
-// 전투
+// 전투 및 스킬
 // ===========================
 let combatCooldown=false;
 function checkCombat(){
+  if(!player.alive) return;
   for(let m of monsters){
+    if(m.hp<=0) continue;
     if(Math.abs(player.x-m.x)<0.8 && Math.abs(player.y-m.y)<0.8 && !combatCooldown){
       combatCooldown=true;
-      // 플레이어 공격
-      m.hp-=10 + (player.equipment.weapon?player.equipment.weapon.atk:0);
+      m.hp -=10 + (player.equipment.weapon?player.equipment.weapon.atk:0);
       effectSound.play();
       showMsg("몬스터 공격!");
-      // 몬스터 공격
-      setTimeout(()=>{
-        player.hp -= m.atk - (player.equipment.armor?player.equipment.armor.def:0);
-        if(player.hp<0) player.hp=0;
-        combatCooldown=false;
-      },300);
-      // 몬스터 사망
+      setTimeout(()=>{combatCooldown=false;},300);
       if(m.hp<=0){player.gold+=m.rewardGold; showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`); m.x=-100;m.y=-100;}
     }
   }
-
-  // 보스 전투
   if(boss.alive && Math.abs(player.x-boss.x)<1 && Math.abs(player.y-boss.y)<1 && !combatCooldown){
     combatCooldown=true;
     boss.hp -=15 + (player.equipment.weapon?player.equipment.weapon.atk:0);
     effectSound.play();
     showMsg("보스 공격!");
-    setTimeout(()=>{
-      player.hp -= boss.atk - (player.equipment.armor?player.equipment.armor.def:0);
-      if(player.hp<0) player.hp=0;
-      combatCooldown=false;
-    },500);
+    setTimeout(()=>{combatCooldown=false;},500);
     if(boss.hp<=0){boss.alive=false; showMsg("🎉 보스 격파! 승리!"); player.gold+=200;}
   }
 }
@@ -245,29 +238,18 @@ function checkCombat(){
 // ===========================
 // NPC 대화
 // ===========================
-function checkNPC(){
-  for(let npc of npcs){
-    const dist=Math.abs(player.x-npc.x)+Math.abs(player.y-npc.y);
-    if(dist<1.2 && keys["e"] && !npc.itemGiven){
-      showMsg(npc.msg);
-      npc.itemGiven=true;
-      if(npc.msg.includes("포션")) giveItem(itemList[0]);
-    }
-  }
-}
+function checkNPC(){for(let npc of npcs){const dist=Math.abs(player.x-npc.x)+Math.abs(player.y-npc.y);if(dist<1.2 && keys["e"] && !npc.itemGiven){showMsg(npc.msg); npc.itemGiven=true; if(npc.msg.includes("포션")) giveItem(itemList[0]);}}}
+function giveItem(it){player.inventory.push(it); showMsg(`${it.name} 획득!`); openInventory();}
+
+// ===========================
+// 사망 처리
+// ===========================
+function checkPlayerDeath(){if(player.hp<=0 && player.alive){player.hp=0; player.alive=false; showMsg("💀 게임 오버"); player.speed=0; keys.ArrowUp=keys.ArrowDown=keys.ArrowLeft=keys.ArrowRight=false; setTimeout(()=>location.reload(),3000);}}
 
 // ===========================
 // 루프
 // ===========================
-function loop(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  drawMap(); drawNPCs(); drawMonsters(); drawBoss();
-  updatePlayer(); drawPlayer();
-  checkNPC(); checkCombat();
-  hpUI.textContent=player.hp;
-  goldUI.textContent=player.gold;
-  requestAnimationFrame(loop);
-}
+function loop(){ctx.clearRect(0,0,canvas.width,canvas.height); drawMap(); drawNPCs(); drawMonsters(); drawBoss(); updatePlayer(); drawPlayer(); checkNPC(); checkCombat(); checkPlayerDeath(); updateMonsters(); updateBoss(); hpUI.textContent=player.hp; mpUI.textContent=Math.floor(player.mp); goldUI.textContent=player.gold; requestAnimationFrame(loop);}
 loop();
 
 // ===========================
@@ -275,7 +257,7 @@ loop();
 // ===========================
 window.addEventListener("keydown",e=>{
   if(e.key.toLowerCase()==="i") openInventory();
-  if(e.key==="Enter" && inventoryUI.style.display==="block"){
+  if(e.key==="Enter" && inventoryUI.style.display==="block" && player.alive){
     if(player.inventory.length>0){
       const it=player.inventory.shift();
       if(it.type==="use") it.effect();
@@ -283,6 +265,23 @@ window.addEventListener("keydown",e=>{
       else if(it.type==="armor") player.equipment.armor=it;
       openInventory();
     }
+  }
+  // 스킬 Q 사용
+  if(e.key.toLowerCase()==="q" && player.skillCooldown<=0 && player.alive && player.mp>=10){
+    skillSound.play();
+    showMsg("🔥 화염 스킬 사용!");
+    player.mp-=10;
+    player.skillCooldown=3;
+    for(let m of monsters){if(Math.abs(player.x-m.x)<3 && Math.abs(player.y-m.y)<3){m.hp-=20;}}
+    if(boss.alive && Math.abs(player.x-boss.x)<3 && Math.abs(player.y-boss.y)<3){boss.hp-=30;}
+  }
+  // 회복 스킬 W
+  if(e.key.toLowerCase()==="w" && player.skillCooldown<=0 && player.alive && player.mp>=15){
+    skillSound.play();
+    showMsg("💖 회복 주문!");
+    player.mp-=15;
+    player.skillCooldown=5;
+    player.hp=Math.min(100,player.hp+40);
   }
 });
 </script>
