@@ -2,115 +2,130 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v6 피하기 포함 🔥</title>
+<title>슈퍼갓 RPG v6 안정화 + 회피</title>
 <style>
 html,body{margin:0;overflow:hidden;background:#000;}
 canvas{display:block;margin:auto;border:3px solid #fff;background:#1b5e20;}
 #ui{position:absolute;top:10px;left:10px;color:white;font-family:"Press Start 2P",monospace;font-size:12px;text-shadow:1px 1px 2px black;}
-#inventory{position:absolute;top:50px;right:20px;width:220px;background:rgba(0,0,0,0.7);color:white;border:2px solid #fff;padding:10px;font-family:"Press Start 2P",monospace;font-size:10px;display:none;}
 #msgBox{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);width:80%;background:rgba(0,0,0,0.6);color:white;font-family:"Press Start 2P",monospace;font-size:11px;padding:15px;border:2px solid white;border-radius:10px;display:none;}
 </style>
 </head>
 <body>
 <canvas id="gameCanvas" width="960" height="640"></canvas>
-<div id="ui">❤️ HP: <span id="hp">100</span> | 🔥 MP: <span id="mp">50</span> | 💰 Gold: <span id="gold">0</span> | 🎒 [I] 인벤토리 | Q:화염 W:회복 | Shift:회피</div>
-<div id="inventory"></div>
+<div id="ui">❤️ HP: <span id="hp">100</span> | 🔥 MP: <span id="mp">50</span> | 💰 Gold: <span id="gold">0</span> | Shift: 회피</div>
 <div id="msgBox"></div>
-
-<audio id="bgm" src="https://cdn.pixabay.com/download/audio/2023/07/05/audio_6782827f58.mp3?filename=retro-rpg-bgm.mp3" loop autoplay></audio>
-<audio id="hitSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_1ea2c7a3d2.mp3?filename=hit-sword-2.mp3"></audio>
-<audio id="potionSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_3a4f1f2e34.mp3?filename=potion-drink.mp3"></audio>
-<audio id="effectSound" src="https://cdn.pixabay.com/download/audio/2023/03/12/audio_03f60e2a4c.mp3?filename=magic-effect.mp3"></audio>
-<audio id="skillSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_9c2e7f7b8c.mp3?filename=magic-spell.mp3"></audio>
-
 <script>
 // ===========================
-// 기본 설정
+// 설정
 // ===========================
 const canvas=document.getElementById("gameCanvas");
 const ctx=canvas.getContext("2d");
 const hpUI=document.getElementById("hp");
 const mpUI=document.getElementById("mp");
 const goldUI=document.getElementById("gold");
-const inventoryUI=document.getElementById("inventory");
 const msgBox=document.getElementById("msgBox");
-const bgm=document.getElementById("bgm");
-const hitSound=document.getElementById("hitSound");
-const potionSound=document.getElementById("potionSound");
-const effectSound=document.getElementById("effectSound");
-const skillSound=document.getElementById("skillSound");
-document.body.addEventListener("click",()=>{bgm.play().catch(()=>{});},{once:true});
 
-// ===========================
-// 상수
-// ===========================
-const TILE_SIZE=32, MAP_W=60, MAP_H=40;
-
-// ===========================
-// 맵 생성
-// ===========================
-const map=[]; for(let y=0;y<MAP_H;y++){const row=[]; for(let x=0;x<MAP_W;x++){let t=0; if(Math.random()<0.05) t=1; if(Math.random()<0.02) t=2; if(x==0||y==0||x==MAP_W-1||y==MAP_H-1) t=2; row.push(t);} map.push(row);}
-const tileColors=["#1b5e20","#33691e","#4e342e"];
+const TILE=32, MAP_W=30, MAP_H=20;
+let keys={};
 
 // ===========================
 // 플레이어
 // ===========================
-const player={x:5,y:5,hp:100,mp:50,gold:0,speed:2,sprite:new Image(),anim:0,dir:0,inventory:[],equipment:{weapon:null,armor:null},isUsingItem:false,alive:true,skillCooldown:0,dodge:false};
-player.sprite.src="https://i.ibb.co/L9G8Fg8/hero-spritesheet.png";
+const player={x:5,y:5,hp:100,mp:50,gold:0,speed:2,dodge:false,alive:true,anim:0,dir:0};
+const playerImg=new Image();
+playerImg.src="https://i.ibb.co/ZYW3VTp/brown-brim.png"; // 임시 안정 이미지
+
+// ===========================
+// 맵 생성
+// ===========================
+const map=[]; for(let y=0;y<MAP_H;y++){const row=[]; for(let x=0;x<MAP_W;x++){row.push(0);} map.push(row);}
+
+// ===========================
+// 몬스터
+// ===========================
+const monsters=[{x:15,y:10,hp:30,atk:5},{x:20,y:15,hp:40,atk:8}];
+const boss={x:25,y:5,hp:100,atk:15,alive:true};
 
 // ===========================
 // 키 입력
 // ===========================
-const keys={};
 window.addEventListener("keydown",e=>keys[e.key]=true);
 window.addEventListener("keyup",e=>keys[e.key]=false);
 
 // ===========================
-// NPC
-// ===========================
-const npcs=[{x:10,y:8,msg:"안녕, 여행자!",itemGiven:false},{x:15,y:14,msg:"E키로 대화, I키로 인벤토리 열기",itemGiven:false},{x:22,y:12,msg:"포션을 줄게!",itemGiven:false}];
-
-// ===========================
-// 몬스터 & 보스
-// ===========================
-const monsters=[]; for(let i=0;i<20;i++){monsters.push({x:Math.floor(Math.random()*MAP_W),y:Math.floor(Math.random()*MAP_H),hp:30,atk:5,rewardGold:10,anim:0});}
-const boss={x:MAP_W-5,y:MAP_H-5,hp:200,atk:15,alive:true,anim:0,skillTimer:0};
-
-// ===========================
-// 아이템
-// ===========================
-const itemList=[{name:"포션",type:"use",effect:()=>{if(!player.isUsingItem&&player.alive){player.isUsingItem=true;potionSound.play();showMsg("HP +30 회복!");player.hp=Math.min(100,player.hp+30);spawnEffect(player.x,player.y,"green",0.3);setTimeout(()=>{player.isUsingItem=false},500);}}},{name:"단검",type:"weapon",atk:5},{name:"강철갑옷",type:"armor",def:3},{name:"금화주머니",type:"gold",amount:50}];
-
-// ===========================
-// 공격/스킬 이펙트
-// ===========================
-const effects=[]; function spawnEffect(x,y,color,duration=0.3){effects.push({x,y,color,duration});} function updateEffects(){for(let i=effects.length-1;i>=0;i--){effects[i].duration-=0.016;if(effects[i]<=0) effects.splice(i,1);}} function drawEffects(){for(let e of effects){ctx.fillStyle=e.color;ctx.globalAlpha=e.duration/0.3;ctx.beginPath();ctx.arc(canvas.width/2+(e.x-player.x)*TILE_SIZE,canvas.height/2+(e.y-player.y)*TILE_SIZE,TILE_SIZE/2,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1;}}
-
-// ===========================
-// 이동 및 플레이어
-// ===========================
-function canMove(nx,ny){return player.alive&&map[Math.floor(ny)]&&map[Math.floor(ny)][Math.floor(nx)]!==2;}
-function updatePlayer(){if(!player.alive)return;let moved=false; const speed=player.speed;const dodgeSpeed=player.dodge?speed*2:speed;if(keys["ArrowUp"]&&canMove(player.x,player.y-dodgeSpeed/32)){player.y-=dodgeSpeed/32;player.dir=3;moved=true;} if(keys["ArrowDown"]&&canMove(player.x,player.y+dodgeSpeed/32)){player.y+=dodgeSpeed/32;player.dir=0;moved=true;} if(keys["ArrowLeft"]&&canMove(player.x-dodgeSpeed/32,player.y)){player.x-=dodgeSpeed/32;player.dir=1;moved=true;} if(keys["ArrowRight"]&&canMove(player.x+dodgeSpeed/32,player.y)){player.x+=dodgeSpeed/32;player.dir=2;moved=true;} if(moved) player.anim+=0.15;if(player.skillCooldown>0) player.skillCooldown-=0.016; if(keys["Shift"]) player.dodge=true; else player.dodge=false;}
-function drawPlayer(){const frame=Math.floor(player.anim)%3;ctx.drawImage(player.sprite,frame*32,player.dir*32,32,32,canvas.width/2-TILE_SIZE/2,canvas.height/2-TILE_SIZE/2,TILE_SIZE,TILE_SIZE);}
-
-// ===========================
-// 몬스터 & 보스 업데이트
-// ===========================
-function updateMonsters(){for(let m of monsters){if(m.hp<=0) continue; const dx=player.x-m.x; const dy=player.y-m.y; const dist=Math.abs(dx)+Math.abs(dy); if(dist<0.8&&!player.dodge){player.hp-=Math.max(0,m.atk-(player.equipment.armor?player.equipment.armor.def:0)); player.hp=Math.max(0,player.hp); effectSound.play(); showMsg("몬스터 공격!");} else{if(Math.abs(dx)>0.1)m.x+=dx>0?0.02:-0.02;if(Math.abs(dy)>0.1)m.y+=dy>0?0.02:-0.02;}}}
-function updateBoss(){if(!boss.alive)return; const dx=player.x-boss.x; const dy=player.y-boss.y; boss.skillTimer+=0.016; const dist=Math.abs(dx)+Math.abs(dy); if(boss.skillTimer>3){boss.skillTimer=0; if(!player.dodge){player.hp-=Math.max(0,boss.atk*1.5-(player.equipment.armor?player.equipment.armor.def:0)); spawnEffect(player.x,player.y,"purple",0.4); effectSound.play(); showMsg("💥 보스 스킬!");}} if(Math.abs(dx)>0.1) boss.x+=dx>0?0.01:-0.01;if(Math.abs(dy)>0.1) boss.y+=dy>0?0.01:-0.01;}
-
-// ===========================
 // 전투
 // ===========================
-let combatCooldown=false;
-function checkCombat(){if(!player.alive)return; for(let m of monsters){if(m.hp<=0) continue; if(Math.abs(player.x-m.x)<0.8&&Math.abs(player.y-m.y)<0.8&&!combatCooldown){combatCooldown=true; m.hp-=10+(player.equipment.weapon?player.equipment.weapon.atk:0); spawnEffect(m.x,m.y,"red",0.2); effectSound.play(); showMsg("몬스터 공격!"); setTimeout(()=>{combatCooldown=false;},300); if(m.hp<=0){player.gold+=m.rewardGold; showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`); m.x=-100;m.y=-100;}}} if(boss.alive&&Math.abs(player.x-boss.x)<1&&Math.abs(player.y-boss.y)<1&&!combatCooldown){combatCooldown=true; boss.hp-=15+(player.equipment.weapon?player.equipment.weapon.atk:0); spawnEffect(boss.x,boss.y,"purple",0.3); effectSound.play(); showMsg("보스 공격!"); setTimeout(()=>{combatCooldown=false;},500); if(boss.hp<=0){boss.alive=false; showMsg("🎉 보스 격파! 승리!"); player.gold+=200;}}}
+function checkCombat(){
+    for(let m of monsters){
+        if(m.hp<=0) continue;
+        let dx=Math.abs(player.x-m.x), dy=Math.abs(player.y-m.y);
+        if(dx<1 && dy<1){
+            if(!player.dodge){player.hp-=m.atk; showMsg("몬스터 공격!");}
+        }
+    }
+    if(boss.alive){
+        let dx=Math.abs(player.x-boss.x), dy=Math.abs(player.y-boss.y);
+        if(dx<1 && dy<1){
+            if(!player.dodge){player.hp-=boss.atk; showMsg("보스 공격!");}
+        }
+    }
+}
 
 // ===========================
-// 이하 NPC/아이템/UI/루프 등 기존 v6 유지
+// UI 메시지
 // ===========================
+let msgTimer=null;
+function showMsg(txt){
+    msgBox.textContent=txt;
+    msgBox.style.display="block";
+    if(msgTimer) clearTimeout(msgTimer);
+    msgTimer=setTimeout(()=>{msgBox.style.display="none";},1500);
+}
 
-// (이어서 기존 v6 안정화 루프 + UI + 스킬/아이템 그대로 적용)
+// ===========================
+// 업데이트
+// ===========================
+function update(){
+    if(!player.alive) return;
 
+    let speed=player.speed;
+    player.dodge=keys["Shift"];
+
+    if(keys["ArrowUp"] && player.y>0) player.y -= speed/4;
+    if(keys["ArrowDown"] && player.y<MAP_H-1) player.y += speed/4;
+    if(keys["ArrowLeft"] && player.x>0) player.x -= speed/4;
+    if(keys["ArrowRight"] && player.x<MAP_W-1) player.x += speed/4;
+
+    checkCombat();
+    if(player.hp<=0){player.hp=0;player.alive=false; showMsg("💀 게임 오버");}
+}
+
+// ===========================
+// 그리기
+// ===========================
+function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // 맵
+    for(let y=0;y<MAP_H;y++){
+        for(let x=0;x<MAP_W;x++){
+            ctx.fillStyle="#1b5e20";
+            ctx.fillRect(x*TILE,y*TILE,TILE,TILE);
+        }
+    }
+    // 몬스터
+    ctx.fillStyle="red";
+    for(let m of monsters){if(m.hp>0) ctx.fillRect(m.x*TILE,m.y*TILE,TILE,TILE);}
+    // 보스
+    if(boss.alive) ctx.fillStyle="purple",ctx.fillRect(boss.x*TILE,boss.y*TILE,TILE,TILE);
+    // 플레이어
+    ctx.drawImage(playerImg,player.x*TILE,player.y*TILE,TILE,TILE);
+}
+
+// ===========================
+// 루프
+// ===========================
+function loop(){update();draw();hpUI.textContent=Math.floor(player.hp);mpUI.textContent=Math.floor(player.mp);goldUI.textContent=Math.floor(player.gold);requestAnimationFrame(loop);}
+loop();
 </script>
 </body>
 </html>
