@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v3.1 🔥</title>
+<title>🔥 슈퍼갓 RPG v4 🔥</title>
 <style>
 html, body {margin:0; overflow:hidden; background:#000;}
 canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
@@ -17,6 +17,8 @@ canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
 <div id="inventory"></div>
 <div id="msgBox"></div>
 <audio id="bgm" src="https://cdn.pixabay.com/download/audio/2023/07/05/audio_6782827f58.mp3?filename=retro-rpg-bgm.mp3" loop autoplay></audio>
+<audio id="hitSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_1ea2c7a3d2.mp3?filename=hit-sword-2.mp3"></audio>
+<audio id="potionSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_3a4f1f2e34.mp3?filename=potion-drink.mp3"></audio>
 
 <script>
 // ===========================
@@ -29,6 +31,8 @@ const goldUI = document.getElementById("gold");
 const inventoryUI = document.getElementById("inventory");
 const msgBox = document.getElementById("msgBox");
 const bgm = document.getElementById("bgm");
+const hitSound = document.getElementById("hitSound");
+const potionSound = document.getElementById("potionSound");
 document.body.addEventListener("click",()=>{bgm.play().catch(()=>{});},{once:true});
 
 // ===========================
@@ -40,7 +44,6 @@ const MAP_H=40;
 
 // ===========================
 // 맵 생성
-// 0: 잔디, 1: 나무, 2: 돌
 // ===========================
 const map=[];
 for(let y=0;y<MAP_H;y++){
@@ -89,7 +92,7 @@ for(let i=0;i<20;i++){
   monsters.push({
     x:Math.floor(Math.random()*MAP_W),
     y:Math.floor(Math.random()*MAP_H),
-    hp:30,atk:5,rewardGold:10
+    hp:30,atk:5,rewardGold:10,anim:0
   });
 }
 
@@ -97,7 +100,11 @@ for(let i=0;i<20;i++){
 // 아이템
 // ===========================
 const itemList=[
-  {name:"포션",type:"use",effect:()=>{player.hp=Math.min(100,player.hp+30); showMsg("HP +30 회복!");}},
+  {name:"포션",type:"use",effect:()=>{
+    player.hp=Math.min(100,player.hp+30);
+    potionSound.play();
+    showMsg("HP +30 회복!");
+  }},
   {name:"단검",type:"weapon",atk:5},
   {name:"강철갑옷",type:"armor",def:3},
   {name:"금화주머니",type:"gold",amount:50}
@@ -160,7 +167,7 @@ function drawPlayer(){
   ctx.drawImage(player.sprite,frame*32,player.dir*32,32,32,canvas.width/2-TILE_SIZE/2,canvas.height/2-TILE_SIZE/2,TILE_SIZE,TILE_SIZE);
 }
 
-function showMsg(txt){msgBox.textContent=txt; msgBox.style.display="block"; setTimeout(()=>msgBox.style.display="none",2000);}
+function showMsg(txt){msgBox.textContent=txt; msgBox.style.display="block"; setTimeout(()=>msgBox.style.display="none",1000);}
 
 function openInventory(){
   inventoryUI.style.display=inventoryUI.style.display==="block"?"none":"block";
@@ -177,12 +184,22 @@ function giveItem(it){player.inventory.push(it); showMsg(`${it.name} 획득!`); 
 // ===========================
 // 전투
 // ===========================
+let combatCooldown=false;
 function checkCombat(){
   for(let m of monsters){
-    if(Math.abs(player.x-m.x)<0.8 && Math.abs(player.y-m.y)<0.8){
+    if(Math.abs(player.x-m.x)<0.8 && Math.abs(player.y-m.y)<0.8 && !combatCooldown){
+      combatCooldown=true;
+      // 플레이어 공격
       m.hp-=10 + (player.equipment.weapon?player.equipment.weapon.atk:0);
-      player.hp-=m.atk - (player.equipment.armor?player.equipment.armor.def:0);
-      if(player.hp<0) player.hp=0;
+      hitSound.play();
+      showMsg("몬스터 공격!");
+      // 몬스터 공격
+      setTimeout(()=>{
+        player.hp -= m.atk - (player.equipment.armor?player.equipment.armor.def:0);
+        if(player.hp<0) player.hp=0;
+        combatCooldown=false;
+      },300); // 0.3초 후 몬스터 공격
+      // 몬스터 사망
       if(m.hp<=0){player.gold+=m.rewardGold; showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`); m.x=-100;m.y=-100;}
     }
   }
