@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v4 🔥</title>
+<title>🔥 슈퍼갓 RPG v5 🔥</title>
 <style>
 html, body {margin:0; overflow:hidden; background:#000;}
 canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
@@ -16,9 +16,11 @@ canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
 <div id="ui">❤️ HP: <span id="hp">100</span> | 💰 Gold: <span id="gold">0</span> | 🎒 [I] 인벤토리</div>
 <div id="inventory"></div>
 <div id="msgBox"></div>
+
 <audio id="bgm" src="https://cdn.pixabay.com/download/audio/2023/07/05/audio_6782827f58.mp3?filename=retro-rpg-bgm.mp3" loop autoplay></audio>
 <audio id="hitSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_1ea2c7a3d2.mp3?filename=hit-sword-2.mp3"></audio>
 <audio id="potionSound" src="https://cdn.pixabay.com/download/audio/2022/03/15/audio_3a4f1f2e34.mp3?filename=potion-drink.mp3"></audio>
+<audio id="effectSound" src="https://cdn.pixabay.com/download/audio/2023/03/12/audio_03f60e2a4c.mp3?filename=magic-effect.mp3"></audio>
 
 <script>
 // ===========================
@@ -33,6 +35,7 @@ const msgBox = document.getElementById("msgBox");
 const bgm = document.getElementById("bgm");
 const hitSound = document.getElementById("hitSound");
 const potionSound = document.getElementById("potionSound");
+const effectSound = document.getElementById("effectSound");
 document.body.addEventListener("click",()=>{bgm.play().catch(()=>{});},{once:true});
 
 // ===========================
@@ -64,7 +67,7 @@ const tileColors=["#1b5e20","#33691e","#4e342e"];
 // ===========================
 const player={
   x:5,y:5,hp:100,gold:0,speed:2,sprite:new Image(),anim:0,dir:0,
-  inventory:[],equipment:{weapon:null,armor:null}
+  inventory:[],equipment:{weapon:null,armor:null},isUsingItem:false
 };
 player.sprite.src="https://i.ibb.co/L9G8Fg8/hero-spritesheet.png";
 
@@ -79,9 +82,9 @@ window.addEventListener("keyup",e=>keys[e.key]=false);
 // NPC
 // ===========================
 const npcs=[
-  {x:10,y:8,msg:"안녕, 여행자!"},
-  {x:15,y:14,msg:"E키로 대화, I키로 인벤토리 열기"},
-  {x:22,y:12,msg:"포션을 줄게!"}
+  {x:10,y:8,msg:"안녕, 여행자!",itemGiven:false},
+  {x:15,y:14,msg:"E키로 대화, I키로 인벤토리 열기",itemGiven:false},
+  {x:22,y:12,msg:"포션을 줄게!",itemGiven:false}
 ];
 
 // ===========================
@@ -97,13 +100,22 @@ for(let i=0;i<20;i++){
 }
 
 // ===========================
+// 보스
+// ===========================
+const boss = {x:MAP_W-5, y:MAP_H-5, hp:200, atk:15, alive:true, anim:0};
+
+// ===========================
 // 아이템
 // ===========================
 const itemList=[
   {name:"포션",type:"use",effect:()=>{
-    player.hp=Math.min(100,player.hp+30);
-    potionSound.play();
-    showMsg("HP +30 회복!");
+    if(!player.isUsingItem){
+      player.isUsingItem=true;
+      potionSound.play();
+      showMsg("HP +30 회복!");
+      player.hp=Math.min(100,player.hp+30);
+      setTimeout(()=>{player.isUsingItem=false},500);
+    }
   }},
   {name:"단검",type:"weapon",atk:5},
   {name:"강철갑옷",type:"armor",def:3},
@@ -162,6 +174,17 @@ function drawMonsters(){
   }
 }
 
+function drawBoss(){
+  if(boss.alive){
+    ctx.fillStyle="purple";
+    const dx=boss.x-player.x;
+    const dy=boss.y-player.y;
+    if(Math.abs(dx)<15 && Math.abs(dy)<10){
+      ctx.fillRect((dx+15)*TILE_SIZE,(dy+10)*TILE_SIZE,TILE_SIZE,TILE_SIZE);
+    }
+  }
+}
+
 function drawPlayer(){
   const frame=Math.floor(player.anim)%3;
   ctx.drawImage(player.sprite,frame*32,player.dir*32,32,32,canvas.width/2-TILE_SIZE/2,canvas.height/2-TILE_SIZE/2,TILE_SIZE,TILE_SIZE);
@@ -191,17 +214,31 @@ function checkCombat(){
       combatCooldown=true;
       // 플레이어 공격
       m.hp-=10 + (player.equipment.weapon?player.equipment.weapon.atk:0);
-      hitSound.play();
+      effectSound.play();
       showMsg("몬스터 공격!");
       // 몬스터 공격
       setTimeout(()=>{
         player.hp -= m.atk - (player.equipment.armor?player.equipment.armor.def:0);
         if(player.hp<0) player.hp=0;
         combatCooldown=false;
-      },300); // 0.3초 후 몬스터 공격
+      },300);
       // 몬스터 사망
       if(m.hp<=0){player.gold+=m.rewardGold; showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`); m.x=-100;m.y=-100;}
     }
+  }
+
+  // 보스 전투
+  if(boss.alive && Math.abs(player.x-boss.x)<1 && Math.abs(player.y-boss.y)<1 && !combatCooldown){
+    combatCooldown=true;
+    boss.hp -=15 + (player.equipment.weapon?player.equipment.weapon.atk:0);
+    effectSound.play();
+    showMsg("보스 공격!");
+    setTimeout(()=>{
+      player.hp -= boss.atk - (player.equipment.armor?player.equipment.armor.def:0);
+      if(player.hp<0) player.hp=0;
+      combatCooldown=false;
+    },500);
+    if(boss.hp<=0){boss.alive=false; showMsg("🎉 보스 격파! 승리!"); player.gold+=200;}
   }
 }
 
@@ -211,8 +248,9 @@ function checkCombat(){
 function checkNPC(){
   for(let npc of npcs){
     const dist=Math.abs(player.x-npc.x)+Math.abs(player.y-npc.y);
-    if(dist<1.2 && keys["e"]){
+    if(dist<1.2 && keys["e"] && !npc.itemGiven){
       showMsg(npc.msg);
+      npc.itemGiven=true;
       if(npc.msg.includes("포션")) giveItem(itemList[0]);
     }
   }
@@ -223,7 +261,7 @@ function checkNPC(){
 // ===========================
 function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  drawMap(); drawNPCs(); drawMonsters();
+  drawMap(); drawNPCs(); drawMonsters(); drawBoss();
   updatePlayer(); drawPlayer();
   checkNPC(); checkCombat();
   hpUI.textContent=player.hp;
