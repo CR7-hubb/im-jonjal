@@ -2,13 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v3.0 🔥</title>
+<title>🔥 슈퍼갓 RPG v3.1 🔥</title>
 <style>
-html, body { margin:0; overflow:hidden; background:#000; }
-canvas { display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
-#ui { position:absolute; top:10px; left:10px; color:white; font-family:"Press Start 2P", monospace; font-size:12px; text-shadow:1px 1px 2px black;}
-#inventory { position:absolute; top:50px; right:20px; width:220px; background:rgba(0,0,0,0.7); color:white; border:2px solid #fff; padding:10px; font-family:"Press Start 2P", monospace; font-size:10px; display:none;}
-#msgBox { position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:80%; background:rgba(0,0,0,0.6); color:white; font-family:"Press Start 2P", monospace; font-size:11px; padding:15px; border:2px solid white; border-radius:10px; display:none;}
+html, body {margin:0; overflow:hidden; background:#000;}
+canvas {display:block; margin:auto; border:3px solid #fff; background:#1b5e20;}
+#ui {position:absolute; top:10px; left:10px; color:white; font-family:"Press Start 2P", monospace; font-size:12px; text-shadow:1px 1px 2px black;}
+#inventory {position:absolute; top:50px; right:20px; width:220px; background:rgba(0,0,0,0.7); color:white; border:2px solid #fff; padding:10px; font-family:"Press Start 2P", monospace; font-size:10px; display:none;}
+#msgBox {position:absolute; bottom:20px; left:50%; transform:translateX(-50%); width:80%; background:rgba(0,0,0,0.6); color:white; font-family:"Press Start 2P", monospace; font-size:11px; padding:15px; border:2px solid white; border-radius:10px; display:none;}
 </style>
 </head>
 <body>
@@ -29,7 +29,6 @@ const goldUI = document.getElementById("gold");
 const inventoryUI = document.getElementById("inventory");
 const msgBox = document.getElementById("msgBox");
 const bgm = document.getElementById("bgm");
-
 document.body.addEventListener("click",()=>{bgm.play().catch(()=>{});},{once:true});
 
 // ===========================
@@ -61,7 +60,7 @@ const tileColors=["#1b5e20","#33691e","#4e342e"];
 // 플레이어
 // ===========================
 const player={
-  x:5,y:5,hp:100,gold:0,speed:0.2,sprite:new Image(),anim:0,dir:0,
+  x:5,y:5,hp:100,gold:0,speed:2,sprite:new Image(),anim:0,dir:0,
   inventory:[],equipment:{weapon:null,armor:null}
 };
 player.sprite.src="https://i.ibb.co/L9G8Fg8/hero-spritesheet.png";
@@ -109,12 +108,13 @@ const itemList=[
 // ===========================
 function canMove(nx,ny){return map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(nx)]!==2;}
 
-function updatePlayer(dt){
+function updatePlayer(){
   let moved=false;
-  if(keys["ArrowUp"] && canMove(player.x,player.y-player.speed*dt)){player.y-=player.speed*dt; player.dir=3; moved=true;}
-  if(keys["ArrowDown"] && canMove(player.x,player.y+player.speed*dt)){player.y+=player.speed*dt; player.dir=0; moved=true;}
-  if(keys["ArrowLeft"] && canMove(player.x-player.speed*dt,player.y)){player.x-=player.speed*dt; player.dir=1; moved=true;}
-  if(keys["ArrowRight"] && canMove(player.x+player.speed*dt,player.y)){player.x+=player.speed*dt; player.dir=2; moved=true;}
+  const speed=player.speed;
+  if(keys["ArrowUp"] && canMove(player.x,player.y-speed/32)){player.y-=speed/32; player.dir=3; moved=true;}
+  if(keys["ArrowDown"] && canMove(player.x,player.y+speed/32)){player.y+=speed/32; player.dir=0; moved=true;}
+  if(keys["ArrowLeft"] && canMove(player.x-speed/32,player.y)){player.x-=speed/32; player.dir=1; moved=true;}
+  if(keys["ArrowRight"] && canMove(player.x+speed/32,player.y)){player.x+=speed/32; player.dir=2; moved=true;}
   if(moved) player.anim+=0.15;
 }
 
@@ -180,23 +180,16 @@ function giveItem(it){player.inventory.push(it); showMsg(`${it.name} 획득!`); 
 function checkCombat(){
   for(let m of monsters){
     if(Math.abs(player.x-m.x)<0.8 && Math.abs(player.y-m.y)<0.8){
-      // 단순 공격
       m.hp-=10 + (player.equipment.weapon?player.equipment.weapon.atk:0);
-      showMsg("몬스터 공격! 남은 HP:"+m.hp);
-      if(m.hp<=0){ // 죽으면 보상
-        player.gold+=m.rewardGold;
-        showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`);
-        m.x=-100; m.y=-100;
-      } else {
-        player.hp-=m.atk - (player.equipment.armor?player.equipment.armor.def:0);
-        if(player.hp<0) player.hp=0;
-      }
+      player.hp-=m.atk - (player.equipment.armor?player.equipment.armor.def:0);
+      if(player.hp<0) player.hp=0;
+      if(m.hp<=0){player.gold+=m.rewardGold; showMsg(`몬스터 처치! 💰${m.rewardGold} 획득`); m.x=-100;m.y=-100;}
     }
   }
 }
 
 // ===========================
-// NPC 대화 + 아이템 획득
+// NPC 대화
 // ===========================
 function checkNPC(){
   for(let npc of npcs){
@@ -211,12 +204,10 @@ function checkNPC(){
 // ===========================
 // 루프
 // ===========================
-let last=0;
-function loop(ts){
-  const dt=ts-last; last=ts;
+function loop(){
   ctx.clearRect(0,0,canvas.width,canvas.height);
   drawMap(); drawNPCs(); drawMonsters();
-  updatePlayer(dt); drawPlayer();
+  updatePlayer(); drawPlayer();
   checkNPC(); checkCombat();
   hpUI.textContent=player.hp;
   goldUI.textContent=player.gold;
