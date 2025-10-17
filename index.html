@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>🔥 슈퍼갓 RPG v1.0 🔥</title>
+<title>🔥 슈퍼갓 RPG v2.0 🔥</title>
 <style>
 html, body {
   margin: 0;
@@ -12,7 +12,7 @@ html, body {
 canvas {
   display: block;
   margin: auto;
-  background: #111;
+  background: #1b5e20;
   border: 3px solid #fff;
 }
 #ui {
@@ -22,6 +22,18 @@ canvas {
   font-family: "Press Start 2P", monospace;
   font-size: 12px;
   text-shadow: 1px 1px 2px black;
+}
+#inventory {
+  position: absolute;
+  top: 50px; right: 20px;
+  width: 220px;
+  background: rgba(0,0,0,0.7);
+  color: white;
+  border: 2px solid #fff;
+  padding: 10px;
+  font-family: "Press Start 2P", monospace;
+  font-size: 10px;
+  display: none;
 }
 #msgBox {
   position: absolute;
@@ -42,149 +54,203 @@ canvas {
 </head>
 <body>
 <canvas id="gameCanvas" width="960" height="640"></canvas>
-<div id="ui">❤️ HP: <span id="hp">100</span> | 💰 Gold: <span id="gold">0</span></div>
-<div id="msgBox">대화 내용...</div>
-
-<audio id="bgm" src="https://cdn.pixabay.com/download/audio/2023/03/13/audio_7cfcd3272f.mp3?filename=8-bit-music-142342.mp3" loop autoplay></audio>
+<div id="ui">❤️ HP: <span id="hp">100</span> | 💰 Gold: <span id="gold">0</span> | 🎒 [I] 인벤토리</div>
+<div id="inventory"></div>
+<div id="msgBox"></div>
+<audio id="bgm" src="https://cdn.pixabay.com/download/audio/2023/07/05/audio_6782827f58.mp3?filename=retro-rpg-bgm.mp3" loop autoplay></audio>
 
 <script>
-// =========================
-// 전역 설정
-// =========================
+// ========================================
+// 기본 설정
+// ========================================
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-const uiHp = document.getElementById("hp");
-const uiGold = document.getElementById("gold");
+const hpUI = document.getElementById("hp");
+const goldUI = document.getElementById("gold");
+const inventoryUI = document.getElementById("inventory");
 const msgBox = document.getElementById("msgBox");
 const bgm = document.getElementById("bgm");
 
-// BGM 자동 재생 보장
 document.body.addEventListener("click", () => {
   bgm.play().catch(()=>{});
 }, { once:true });
 
-// =========================
-// 기본 데이터
-// =========================
-const TILE_SIZE = 32;
-const MAP_WIDTH = 30;
-const MAP_HEIGHT = 20;
-
-// 간단한 타일맵 (0=바닥,1=벽)
-const map = [];
-for (let y=0; y<MAP_HEIGHT; y++) {
-  const row = [];
-  for (let x=0; x<MAP_WIDTH; x++) {
-    row.push((x==0||y==0||x==MAP_WIDTH-1||y==MAP_HEIGHT-1)?1:0);
-  }
-  map.push(row);
-}
-
-// =========================
-// 플레이어 설정
-// =========================
+// ========================================
+// 플레이어
+// ========================================
 const player = {
   x: 5, y: 5,
-  hp: 100,
-  gold: 0,
+  hp: 100, gold: 0,
+  speed: 0.08,
   sprite: new Image(),
-  speed: 0.15,
-  anim: 0
+  anim: 0,
+  dir: 0,
+  inventory: [],
+  equipment: {
+    weapon: null,
+    armor: null
+  }
 };
-player.sprite.src = "https://i.ibb.co/b5sSnQz/hero.png";
+player.sprite.src = "https://i.ibb.co/L9G8Fg8/hero-spritesheet.png"; // 꾸민 캐릭터
 
+// ========================================
+// 키 입력
+// ========================================
 const keys = {};
 window.addEventListener("keydown", e => keys[e.key] = true);
 window.addEventListener("keyup", e => keys[e.key] = false);
 
-// =========================
-// NPC 설정
-// =========================
-const npcs = [
-  {x:10, y:8, msg:"안녕? 나는 이 마을의 안내자야."},
-  {x:15, y:12, msg:"조심해! 숲에 몬스터가 숨어있대."}
+// ========================================
+// 맵
+// ========================================
+const TILE_SIZE = 32;
+const MAP_W = 60;
+const MAP_H = 40;
+const map = [];
+for (let y=0; y<MAP_H; y++) {
+  const row = [];
+  for (let x=0; x<MAP_W; x++) {
+    let t = 0; // 잔디
+    if (Math.random()<0.05) t=1; // 나무
+    if (Math.random()<0.02) t=2; // 돌
+    if (x==0||y==0||x==MAP_W-1||y==MAP_H-1) t=2;
+    row.push(t);
+  }
+  map.push(row);
+}
+const tileColors = ["#1b5e20","#33691e","#4e342e"];
+
+// ========================================
+// 아이템 데이터
+// ========================================
+const itemList = [
+  {name:"포션", type:"use", effect:()=>{player.hp=Math.min(100,player.hp+30); showMsg("HP +30 회복!");}},
+  {name:"단검", type:"weapon", atk:5},
+  {name:"강철갑옷", type:"armor", def:3},
+  {name:"금화주머니", type:"gold", amount:50}
 ];
 
-// =========================
-// 그리기 함수
-// =========================
+// ========================================
+// NPC
+// ========================================
+const npcs = [
+  {x:10,y:8,msg:"안녕, 여행자! 이곳은 슈퍼갓마을이야."},
+  {x:15,y:14,msg:"E키로 대화하고, I키로 인벤토리를 열 수 있어."},
+  {x:22,y:12,msg:"포션을 주지!"},
+];
+
+// ========================================
+// 함수
+// ========================================
+function canMove(nx, ny) {
+  return map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(nx)] !== 2;
+}
+
+function updatePlayer(dt) {
+  let moved=false;
+  if (keys["ArrowUp"] && canMove(player.x, player.y - player.speed*dt)) {player.y -= player.speed*dt; player.dir=3; moved=true;}
+  if (keys["ArrowDown"] && canMove(player.x, player.y + player.speed*dt)) {player.y += player.speed*dt; player.dir=0; moved=true;}
+  if (keys["ArrowLeft"] && canMove(player.x - player.speed*dt, player.y)) {player.x -= player.speed*dt; player.dir=1; moved=true;}
+  if (keys["ArrowRight"] && canMove(player.x + player.speed*dt, player.y)) {player.x += player.speed*dt; player.dir=2; moved=true;}
+  if (moved) player.anim += 0.15;
+}
+
 function drawMap() {
-  for (let y=0; y<MAP_HEIGHT; y++) {
-    for (let x=0; x<MAP_WIDTH; x++) {
-      if (map[y][x] === 1) {
-        ctx.fillStyle = "#333";
-      } else {
-        ctx.fillStyle = "#1b5e20";
+  const startX = Math.floor(player.x - 15);
+  const startY = Math.floor(player.y - 10);
+  for (let y=0; y<20; y++) {
+    for (let x=0; x<30; x++) {
+      const mx = startX + x;
+      const my = startY + y;
+      if (map[my] && map[my][mx] !== undefined) {
+        ctx.fillStyle = tileColors[map[my][mx]];
+        ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
-      ctx.fillRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    }
+  }
+}
+
+function drawNPCs() {
+  ctx.fillStyle="yellow";
+  for (let npc of npcs) {
+    const dx = npc.x - player.x;
+    const dy = npc.y - player.y;
+    if (Math.abs(dx)<15 && Math.abs(dy)<10) {
+      ctx.fillRect((dx+15)*TILE_SIZE, (dy+10)*TILE_SIZE, TILE_SIZE, TILE_SIZE);
     }
   }
 }
 
 function drawPlayer() {
+  const frame = Math.floor(player.anim)%3;
   ctx.drawImage(player.sprite,
-    Math.floor(player.anim)%3*32, 0, 32, 32,
-    player.x*TILE_SIZE, player.y*TILE_SIZE, TILE_SIZE, TILE_SIZE
+    frame*32, player.dir*32, 32, 32,
+    canvas.width/2 - TILE_SIZE/2, canvas.height/2 - TILE_SIZE/2,
+    TILE_SIZE, TILE_SIZE
   );
 }
 
-function drawNPCs() {
-  ctx.fillStyle = "yellow";
-  for (let npc of npcs) {
-    ctx.fillRect(npc.x*TILE_SIZE, npc.y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+function showMsg(txt) {
+  msgBox.textContent = txt;
+  msgBox.style.display="block";
+  setTimeout(()=>msgBox.style.display="none",2000);
+}
+
+function openInventory() {
+  inventoryUI.style.display = inventoryUI.style.display==="block"?"none":"block";
+  if (inventoryUI.style.display==="block") {
+    let html = "<b>🎒 인벤토리</b><hr>";
+    player.inventory.forEach((item,i)=>{
+      html += `${i+1}. ${item.name}<br>`;
+    });
+    html += "<hr><small>[Enter]로 사용</small>";
+    inventoryUI.innerHTML = html;
   }
 }
 
-// =========================
-// 이동 및 충돌
-// =========================
-function canMove(nx, ny) {
-  return map[Math.floor(ny)] && map[Math.floor(ny)][Math.floor(nx)] === 0;
+function giveItem(it) {
+  player.inventory.push(it);
+  showMsg(`${it.name} 획득!`);
+  openInventory();
 }
 
-function updatePlayer(dt) {
-  let moved = false;
-  if (keys["ArrowUp"] && canMove(player.x, player.y - player.speed*dt)) {player.y -= player.speed*dt; moved=true;}
-  if (keys["ArrowDown"] && canMove(player.x, player.y + player.speed*dt)) {player.y += player.speed*dt; moved=true;}
-  if (keys["ArrowLeft"] && canMove(player.x - player.speed*dt, player.y)) {player.x -= player.speed*dt; moved=true;}
-  if (keys["ArrowRight"] && canMove(player.x + player.speed*dt, player.y)) {player.x += player.speed*dt; moved=true;}
-  if (moved) player.anim += 0.2;
-}
-
-// =========================
-// NPC 대화
-// =========================
-function checkNPCInteraction() {
+// NPC 대화 + 보상
+function checkNPC() {
   for (let npc of npcs) {
-    const dist = Math.abs(player.x - npc.x) + Math.abs(player.y - npc.y);
-    if (dist < 1) {
-      msgBox.style.display = "block";
-      msgBox.textContent = npc.msg;
-      return;
+    const dist = Math.abs(player.x-npc.x)+Math.abs(player.y-npc.y);
+    if (dist<1.2 && keys["e"]) {
+      showMsg(npc.msg);
+      if (npc.msg.includes("포션")) {
+        giveItem(itemList[0]);
+      }
     }
   }
-  msgBox.style.display = "none";
 }
 
-// =========================
-// 게임 루프
-// =========================
-let last = 0;
-function gameLoop(ts) {
-  const dt = ts - last;
-  last = ts;
+// ========================================
+// 루프
+// ========================================
+let last=0;
+function loop(ts) {
+  const dt = ts-last; last=ts;
   ctx.clearRect(0,0,canvas.width,canvas.height);
   drawMap();
   drawNPCs();
   updatePlayer(dt);
   drawPlayer();
-  checkNPCInteraction();
-  uiHp.textContent = player.hp;
-  uiGold.textContent = player.gold;
-  requestAnimationFrame(gameLoop);
+  checkNPC();
+  hpUI.textContent = player.hp;
+  goldUI.textContent = player.gold;
+  requestAnimationFrame(loop);
 }
+loop();
 
-gameLoop();
+// ========================================
+// 키 이벤트
+// ========================================
+window.addEventListener("keydown", e=>{
+  if (e.key.toLowerCase()==="i") openInventory();
+});
 </script>
 </body>
 </html>
