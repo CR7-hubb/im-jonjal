@@ -1,1 +1,254 @@
-조현수
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>벽돌깨기 2.0 🚀</title>
+<style>
+  body {
+    background: radial-gradient(circle at top, #111 0%, #000 100%);
+    color: white;
+    text-align: center;
+    margin: 0;
+    font-family: "Segoe UI", sans-serif;
+  }
+  h1 { margin: 10px 0; }
+  canvas {
+    display: block;
+    margin: 0 auto;
+    background: #222;
+    border-radius: 10px;
+    border: 3px solid #555;
+  }
+  #info {
+    margin-top: 8px;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <h1>벽돌깨기 2.0 🎾</h1>
+  <canvas id="gameCanvas" width="480" height="320"></canvas>
+  <div id="info">← → 로 조작 / 아이템을 받아보세요!</div>
+
+  <script>
+    const canvas = document.getElementById("gameCanvas");
+    const ctx = canvas.getContext("2d");
+
+    // === 기본 설정 ===
+    const ballRadius = 8;
+    const paddleHeight = 10;
+    let paddleWidth = 75;
+    let paddleX = (canvas.width - paddleWidth) / 2;
+    let x = canvas.width / 2;
+    let y = canvas.height - 30;
+    let dx = 2;
+    let dy = -2;
+    let rightPressed = false;
+    let leftPressed = false;
+
+    // === 벽돌 ===
+    const brickRowCount = 4;
+    const brickColumnCount = 7;
+    const brickWidth = 55;
+    const brickHeight = 18;
+    const brickPadding = 10;
+    const brickOffsetTop = 30;
+    const brickOffsetLeft = 30;
+    let bricks = [];
+
+    // === 게임 상태 ===
+    let score = 0;
+    let level = 1;
+    let lives = 3;
+    let itemList = [];
+
+    // === 초기화 ===
+    function initBricks() {
+      bricks = [];
+      for (let c = 0; c < brickColumnCount; c++) {
+        bricks[c] = [];
+        for (let r = 0; r < brickRowCount; r++) {
+          bricks[c][r] = { x: 0, y: 0, status: 1 };
+        }
+      }
+    }
+    initBricks();
+
+    // === 키보드 ===
+    document.addEventListener("keydown", e => {
+      if (e.key === "Right" || e.key === "ArrowRight") rightPressed = true;
+      else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = true;
+    });
+    document.addEventListener("keyup", e => {
+      if (e.key === "Right" || e.key === "ArrowRight") rightPressed = false;
+      else if (e.key === "Left" || e.key === "ArrowLeft") leftPressed = false;
+    });
+
+    // === 충돌 감지 ===
+    function collisionDetection() {
+      for (let c = 0; c < brickColumnCount; c++) {
+        for (let r = 0; r < brickRowCount; r++) {
+          const b = bricks[c][r];
+          if (b.status === 1) {
+            if (x > b.x && x < b.x + brickWidth && y > b.y && y < b.y + brickHeight) {
+              dy = -dy;
+              b.status = 0;
+              score++;
+
+              // 아이템 생성 (10% 확률)
+              if (Math.random() < 0.1) spawnItem(b.x + brickWidth / 2, b.y);
+
+              if (score === brickRowCount * brickColumnCount * level) {
+                nextLevel();
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // === 아이템 ===
+    function spawnItem(ix, iy) {
+      const types = ["expand", "slow"];
+      const type = types[Math.floor(Math.random() * types.length)];
+      itemList.push({ x: ix, y: iy, type, active: true });
+    }
+
+    function drawItems() {
+      for (let item of itemList) {
+        if (!item.active) continue;
+        ctx.beginPath();
+        ctx.arc(item.x, item.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = item.type === "expand" ? "#00f6ff" : "#ff5555";
+        ctx.fill();
+        ctx.closePath();
+        item.y += 2;
+        // 패들과 충돌 시 효과 적용
+        if (
+          item.y > canvas.height - paddleHeight - 5 &&
+          item.x > paddleX &&
+          item.x < paddleX + paddleWidth
+        ) {
+          applyItemEffect(item.type);
+          item.active = false;
+        }
+      }
+      itemList = itemList.filter(i => i.active && i.y < canvas.height);
+    }
+
+    function applyItemEffect(type) {
+      if (type === "expand") {
+        paddleWidth = Math.min(paddleWidth + 30, 150);
+        setTimeout(() => (paddleWidth = 75), 7000);
+      } else if (type === "slow") {
+        dx *= 0.7;
+        dy *= 0.7;
+        setTimeout(() => {
+          dx = dx > 0 ? 2 * level : -2 * level;
+          dy = dy > 0 ? 2 * level : -2 * level;
+        }, 5000);
+      }
+    }
+
+    // === 그리기 ===
+    function drawBall() {
+      ctx.beginPath();
+      ctx.arc(x, y, ballRadius, 0, Math.PI * 2);
+      ctx.fillStyle = "#ff3333";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function drawPaddle() {
+      ctx.beginPath();
+      ctx.rect(paddleX, canvas.height - paddleHeight - 5, paddleWidth, paddleHeight);
+      ctx.fillStyle = "#00ff88";
+      ctx.fill();
+      ctx.closePath();
+    }
+
+    function drawBricks() {
+      for (let c = 0; c < brickColumnCount; c++) {
+        for (let r = 0; r < brickRowCount; r++) {
+          if (bricks[c][r].status === 1) {
+            const brickX = c * (brickWidth + brickPadding) + brickOffsetLeft;
+            const brickY = r * (brickHeight + brickPadding) + brickOffsetTop;
+            bricks[c][r].x = brickX;
+            bricks[c][r].y = brickY;
+            ctx.beginPath();
+            ctx.rect(brickX, brickY, brickWidth, brickHeight);
+            ctx.fillStyle = `hsl(${(c * 40 + r * 20) % 360}, 80%, 50%)`;
+            ctx.fill();
+            ctx.closePath();
+          }
+        }
+      }
+    }
+
+    function drawInfo() {
+      ctx.font = "14px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(`Score: ${score}`, 8, 20);
+      ctx.fillText(`Level: ${level}`, canvas.width / 2 - 30, 20);
+      ctx.fillText(`Lives: ${lives}`, canvas.width - 70, 20);
+    }
+
+    // === 레벨 업 ===
+    function nextLevel() {
+      level++;
+      dx = 2 * level;
+      dy = -2 * level;
+      x = canvas.width / 2;
+      y = canvas.height - 30;
+      paddleX = (canvas.width - paddleWidth) / 2;
+      initBricks();
+      itemList = [];
+      alert(`레벨 ${level} 도전!`);
+    }
+
+    // === 메인 루프 ===
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBricks();
+      drawBall();
+      drawPaddle();
+      drawItems();
+      drawInfo();
+      collisionDetection();
+
+      // 벽 충돌
+      if (x + dx > canvas.width - ballRadius || x + dx < ballRadius) dx = -dx;
+      if (y + dy < ballRadius) dy = -dy;
+      else if (y + dy > canvas.height - ballRadius) {
+        if (x > paddleX && x < paddleX + paddleWidth) {
+          dy = -dy;
+        } else {
+          lives--;
+          if (!lives) {
+            alert("게임 오버 💀");
+            document.location.reload();
+          } else {
+            x = canvas.width / 2;
+            y = canvas.height - 30;
+            dx = 2 * level;
+            dy = -2 * level;
+            paddleX = (canvas.width - paddleWidth) / 2;
+          }
+        }
+      }
+
+      // 패들 이동
+      if (rightPressed && paddleX < canvas.width - paddleWidth) paddleX += 5;
+      else if (leftPressed && paddleX > 0) paddleX -= 5;
+
+      x += dx;
+      y += dy;
+      requestAnimationFrame(draw);
+    }
+
+    draw();
+  </script>
+</body>
+</html>
+
